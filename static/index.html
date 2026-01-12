@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Interior Meeting Transcriber</title>
+
+  <!-- THIS LINE FIXES MOBILE SCALING -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont;
+      padding: 16px;
+      max-width: 480px;
+      margin: auto;
+      background: #f9f9f9;
+    }
+
+    h2 {
+      text-align: center;
+    }
+
+    button {
+      width: 100%;
+      padding: 14px;
+      margin: 8px 0;
+      font-size: 16px;
+      border-radius: 8px;
+      border: none;
+      background: #111;
+      color: #fff;
+    }
+
+    button#stop {
+      background: #c0392b;
+    }
+
+    pre {
+      background: #fff;
+      padding: 12px;
+      border-radius: 8px;
+      margin-top: 12px;
+      white-space: pre-wrap;
+      font-size: 14px;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>Meeting Recorder</h2>
+  <button id="start">Start Recording</button>
+  <button id="stop">Stop Recording</button>
+  <pre id="output">Transcript will appear here...</pre>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
