@@ -1,95 +1,117 @@
-let recorder = null;
-let chunks = [];
+document.addEventListener("DOMContentLoaded", () => {
+  let recorder = null;
+  let chunks = [];
+  let recordStartTime = null;
 
-const startBtn = document.getElementById("start");
-const stopBtn = document.getElementById("stop");
-const output = document.getElementById("output");
+  const startBtn = document.getElementById("start");
+  const stopBtn = document.getElementById("stop");
+  const output = document.getElementById("output");
 
-/**
- * START RECORDING
- */
-startBtn.addEventListener("click", async () => {
-  try {
-    // Request mic access (Safari-safe)
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-    // iOS Safari compatible format
-    recorder = new MediaRecorder(stream, {
-      mimeType: "audio/mp4"
-    });
-
-    chunks = [];
-
-    recorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) {
-        chunks.push(e.data);
-      }
-    };
-
-    recorder.start();
-
-    output.textContent = "🎙 Recording started...\nSpeak clearly.";
-
-  } catch (err) {
-    console.error(err);
-    output.textContent =
-      "❌ Microphone access failed.\nPlease allow mic permission in Safari settings.";
-  }
-});
-
-/**
- * STOP RECORDING & UPLOAD
- */
-stopBtn.addEventListener("click", async () => {
-  if (!recorder) {
-    output.textContent = "⚠️ Recorder not initialized.";
+  if (!startBtn || !stopBtn || !output) {
+    console.error("Required HTML elements not found");
     return;
   }
 
-  // Force Safari to flush last audio chunk
-  recorder.requestData();
-  recorder.stop();
-
-  output.textContent = "⏹ Recording stopped.\nPreparing audio...";
-
-  recorder.onstop = async () => {
+  /* =========================
+     START RECORDING
+     ========================= */
+  startBtn.addEventListener("click", async () => {
     try {
-      const audioBlob = new Blob(chunks, { type: "audio/mp4" });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      // Basic validation
-      if (audioBlob.size < 1000) {
-        output.textContent =
-          "❌ Recording too short or failed.\nPlease try again.";
-        return;
-      }
-
-      output.textContent =
-        `🎧 Audio captured (${Math.round(audioBlob.size / 1024)} KB)\nUploading...`;
-
-      const formData = new FormData();
-      formData.append("file", audioBlob, "meeting.mp4");
-
-      const response = await fetch("/transcribe", {
-        method: "POST",
-        body: formData
+      recorder = new MediaRecorder(stream, {
+        mimeType: "audio/mp4" // Safari compatible
       });
 
-      if (!response.ok) {
-        throw new Error("Server error during transcription");
-      }
+      chunks = [];
+      recordStartTime = Date.now(); // ✅ REQUIRED FOR SAFARI
 
-      const data = await response.json();
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      };
 
-      output.textContent =
-        "✅ Transcription complete:\n\n" + (data.text || "(No text detected)");
+      recorder.start();
+      output.textContent = "🎙 Recording started… Speak clearly.";
 
     } catch (err) {
       console.error(err);
       output.textContent =
-        "❌ Error processing audio.\nPlease check network and try again.";
-    } finally {
-      recorder = null;
-      chunks = [];
+        "❌ Microphone access failed. Please allow mic permission.";
     }
-  };
+  });
+
+  /* =========================
+     STOP RECORDING (SAFARI-SAFE)
+     ========================= */
+  stopBtn.addEventListener("click", () => {
+    if (!recorder) {
+      output.textContent = "⚠️ Recorder not active.";
+      return;
+    }
+
+    const duration = Date.now() - recordStartTime;
+
+    // ✅ Safari requires minimum recording time
+    if (duration < 3000) {
+      output.textContent =
+        "⚠️ Please record at least 3 seconds before stopping.";
+      return;
+    }
+
+    output.textContent = "⏹ Stopping recording…";
+
+    // ✅ Force Safari to flush audio buffer
+    recorder.requestData();
+
+    // ✅ Safari needs delay before stop()
+    setTimeout(() => {
+      recorder.stop();
+    }, 500);
+
+    recorder.onstop = async () => {
+      try {
+        const audioBlob = new Blob(chunks, { type: "audio/mp4" });
+
+        output.textContent =
+          `🎧 Audio captured (${Math.round(audioBlob.size / 1024)} KB)`;
+
+        if (audioBlob.size < 3000) {
+          output.textContent +=
+            "\n❌ Recording failed. Please try again.";
+          return;
+        }
+
+        output.textContent += "\n⬆ Uploading audio…";
+
+        const formData = new FormData();
+        formData.append("file", audioBlob, "meeting.mp4");
+
+        const response = await fetch("/transcribe", {
+          method: "POST",
+          body: formData
+        });
+
+        if (!response.ok) {
+          throw new Error("Server error during transcription");
+        }
+
+        const data = await response.json();
+
+        output.textContent =
+          "✅ Transcription complete:\n\n" +
+          (data.text || "(No speech detected)");
+
+      } catch (err) {
+        console.error(err);
+        output.textContent =
+          "❌ Error processing recording. Please try again.";
+      } finally {
+        recorder = null;
+        chunks = [];
+        recordStartTime = null;
+      }
+    };
+  });
 });
