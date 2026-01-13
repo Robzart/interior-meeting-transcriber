@@ -14,7 +14,6 @@ app = FastAPI()
 # -------------------------
 os.makedirs("uploads", exist_ok=True)
 
-# Load Whisper (CPU, paid Render instance)
 model = whisper.load_model("small")
 
 # -------------------------
@@ -25,71 +24,95 @@ def health():
     return {"status": "ok"}
 
 # -------------------------
-# Rule-based sentence extraction
+# Professional rule-based extraction
 # -------------------------
 def rule_based_extract_notes(transcript: str) -> str:
     sentences = re.split(r'(?<=[.!?])\s+', transcript.strip())
 
-    def find_sentences(keywords):
+    def clean(s):
+        return s.strip().capitalize()
+
+    def find(keywords):
         return [
-            s.strip()
-            for s in sentences
-            if any(k.lower() in s.lower() for k in keywords)
+            clean(s) for s in sentences
+            if not s.strip().endswith("?")
+            and any(k in s.lower() for k in keywords)
         ]
 
     notes = []
 
+    # PROJECT OVERVIEW
     notes.append("PROJECT OVERVIEW")
-    prop = find_sentences(["apartment", "flat", "villa", "house"])
-    area = find_sentences(["sq ft", "square feet"])
-    family = find_sentences(["family", "kids", "children", "wife"])
+    prop = find(["3 bhk", "apartment", "flat", "villa", "house"])
+    area = find(["sq ft", "square feet"])
+    family = find(["wife", "kids", "children", "family"])
 
     notes.append(f"- Property Type: {prop[0] if prop else 'Not specified'}")
-    notes.append(f"- Approx Area: {area[0] if area else 'Not specified'}")
+    notes.append(f"- Area: {area[0] if area else 'Not specified'}")
     notes.append(f"- Family Members: {family[0] if family else 'Not specified'}")
     notes.append("")
 
+    # LIVING ROOM
     notes.append("LIVING ROOM")
-    living = find_sentences(
-        ["living room", "hall", "tv", "false ceiling", "lighting", "cove"]
-    )
-    if living:
-        for s in living:
-            notes.append(f"- {s}")
-    else:
+    tv = find(["tv unit"])
+    ceiling = find(["false ceiling"])
+    lighting = find(["lighting", "cove", "warm"])
+
+    if tv:
+        notes.append(f"- TV Unit: {tv[0]}")
+    if ceiling:
+        notes.append(f"- Ceiling: {ceiling[0]}")
+    if lighting:
+        notes.append(f"- Lighting: {lighting[0]}")
+    if not (tv or ceiling or lighting):
         notes.append("- Not specified")
     notes.append("")
 
+    # KITCHEN
     notes.append("KITCHEN")
-    kitchen = find_sentences(
-        ["kitchen", "modular", "countertop", "drawer", "cabinet", "dishwasher"]
-    )
-    if kitchen:
-        for s in kitchen:
-            notes.append(f"- {s}")
-    else:
+    modular = find(["modular kitchen"])
+    counter = find(["quartz", "granite", "countertop"])
+    storage = find(["drawer", "soft close", "cabinet"])
+    appliance = find(["dishwasher", "microwave"])
+
+    if modular:
+        notes.append("- Type: Modular kitchen")
+    if counter:
+        notes.append(f"- Countertop: {counter[0]}")
+    if storage:
+        notes.append("- Storage: Soft-close drawers")
+    if appliance:
+        notes.append("- Appliances: Dishwasher / microwave space required")
+    if not (modular or counter or storage or appliance):
         notes.append("- Not specified")
     notes.append("")
 
-    notes.append("BEDROOMS")
-    bedroom = find_sentences(
-        ["bedroom", "wardrobe", "study table", "sliding"]
-    )
-    if bedroom:
-        for s in bedroom:
-            notes.append(f"- {s}")
-    else:
+    # MASTER BEDROOM
+    notes.append("MASTER BEDROOM")
+    wardrobe = find(["wardrobe", "sliding"])
+    study = find(["study table"])
+    colour = find(["colour", "neutral"])
+
+    if wardrobe:
+        notes.append(f"- Wardrobe: {wardrobe[0]}")
+    if study:
+        notes.append(f"- Study Table: {study[0]}")
+    if colour:
+        notes.append(f"- Colour Preference: {colour[0]}")
+    if not (wardrobe or study or colour):
         notes.append("- Not specified")
     notes.append("")
 
-    notes.append("BUDGET / TIMELINE")
-    budget = find_sentences(
-        ["budget", "cost", "price", "start", "timeline", "march"]
-    )
+    # BUDGET & TIMELINE
+    notes.append("BUDGET & TIMELINE")
+    budget = find(["budget"])
+    timeline = find(["march", "april", "start", "timeline"])
+
     if budget:
-        for s in budget:
-            notes.append(f"- {s}")
-    else:
+        notes.append(f"- Budget: {budget[0]}")
+    if timeline:
+        notes.append(f"- Timeline: {timeline[0]}")
+    if not (budget or timeline):
         notes.append("- Not specified")
 
     return "\n".join(notes)
@@ -111,7 +134,6 @@ async def transcribe_audio(file: UploadFile = File(...)):
         shutil.copyfileobj(file.file, buffer)
 
     result = model.transcribe(filename)
-
     return {"text": result["text"]}
 
 @app.post("/extract-notes")

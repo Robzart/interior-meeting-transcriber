@@ -8,9 +8,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const downloadBtn = document.getElementById("download");
   const output = document.getElementById("output");
   const statusDiv = document.getElementById("status");
+  const loader = document.getElementById("loader");
 
   // -------------------------
-  // App status check
+  // App status
   // -------------------------
   fetch("/health")
     .then(() => {
@@ -43,77 +44,59 @@ document.addEventListener("DOMContentLoaded", () => {
       output.textContent = "🎙 Recording started… Speak clearly.";
 
     } catch (err) {
-      console.error(err);
-      output.textContent =
-        "❌ Microphone access failed. Please allow mic permission.";
+      output.textContent = "❌ Microphone access denied.";
     }
   });
 
   // -------------------------
-  // Stop recording (Safari-safe)
+  // Stop recording
   // -------------------------
   stopBtn.addEventListener("click", () => {
-    if (!recorder) {
-      output.textContent = "⚠️ Recorder not active.";
+    if (!recorder) return;
+
+    if (Date.now() - recordStartTime < 3000) {
+      output.textContent = "⚠️ Please record at least 3 seconds.";
       return;
     }
 
-    const duration = Date.now() - recordStartTime;
-
-    if (duration < 3000) {
-      output.textContent =
-        "⚠️ Please record at least 3 seconds before stopping.";
-      return;
-    }
-
+    loader.style.display = "block";
     output.textContent = "⏳ Uploading audio…";
 
     recorder.requestData();
-
-    setTimeout(() => {
-      recorder.stop();
-    }, 500);
+    setTimeout(() => recorder.stop(), 500);
 
     recorder.onstop = async () => {
       try {
         const audioBlob = new Blob(chunks, { type: "audio/mp4" });
 
-        if (audioBlob.size < 3000) {
-          output.textContent = "❌ Recording failed. Please try again.";
-          return;
-        }
-
         const formData = new FormData();
         formData.append("file", audioBlob, "meeting.mp4");
 
-        output.textContent =
-          "🧠 Transcribing audio… This may take up to 1 minute.";
+        output.textContent = "🧠 Transcribing audio…";
 
-        const response = await fetch("/transcribe", {
+        const tRes = await fetch("/transcribe", {
           method: "POST",
           body: formData
         });
+        const tData = await tRes.json();
 
-        const data = await response.json();
+        output.textContent = "📝 Structuring meeting notes…";
 
-        output.textContent = "📝 Generating structured meeting notes…";
-
-        const notesResponse = await fetch("/extract-notes", {
+        const nRes = await fetch("/extract-notes", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ transcript: data.text })
+          body: JSON.stringify({ transcript: tData.text })
         });
 
-        const notesData = await notesResponse.json();
-        window.latestNotes = notesData.notes;
+        const nData = await nRes.json();
+        window.latestNotes = nData.notes;
 
-        output.textContent =
-          "📝 MEETING NOTES\n\n" + notesData.notes;
+        loader.style.display = "none";
+        output.textContent = "📝 MEETING NOTES\n\n" + nData.notes;
 
-      } catch (err) {
-        console.error(err);
-        output.textContent =
-          "❌ Error processing recording. Please try again.";
+      } catch {
+        loader.style.display = "none";
+        output.textContent = "❌ Processing failed.";
       } finally {
         recorder = null;
         chunks = [];
@@ -126,10 +109,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Download notes
   // -------------------------
   downloadBtn.addEventListener("click", () => {
-    if (!window.latestNotes) {
-      alert("No notes available to download yet.");
-      return;
-    }
+    if (!window.latestNotes) return;
 
     const blob = new Blob([window.latestNotes], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
