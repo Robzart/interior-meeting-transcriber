@@ -5,12 +5,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const startBtn = document.getElementById("start");
   const stopBtn = document.getElementById("stop");
+  const downloadBtn = document.getElementById("download");
   const output = document.getElementById("output");
-
-  if (!startBtn || !stopBtn || !output) {
-    console.error("Required HTML elements not found");
-    return;
-  }
 
   /* =========================
      START RECORDING
@@ -19,12 +15,9 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      recorder = new MediaRecorder(stream, {
-        mimeType: "audio/mp4" // Safari compatible
-      });
-
+      recorder = new MediaRecorder(stream, { mimeType: "audio/mp4" });
       chunks = [];
-      recordStartTime = Date.now(); // ✅ REQUIRED FOR SAFARI
+      recordStartTime = Date.now();
 
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
@@ -43,7 +36,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   /* =========================
-     STOP RECORDING (SAFARI-SAFE)
+     STOP RECORDING (SAFARI SAFE)
      ========================= */
   stopBtn.addEventListener("click", () => {
     if (!recorder) {
@@ -53,7 +46,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const duration = Date.now() - recordStartTime;
 
-    // ✅ Safari requires minimum recording time
     if (duration < 3000) {
       output.textContent =
         "⚠️ Please record at least 3 seconds before stopping.";
@@ -62,10 +54,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     output.textContent = "⏹ Stopping recording…";
 
-    // ✅ Force Safari to flush audio buffer
     recorder.requestData();
 
-    // ✅ Safari needs delay before stop()
     setTimeout(() => {
       recorder.stop();
     }, 500);
@@ -74,16 +64,12 @@ document.addEventListener("DOMContentLoaded", () => {
       try {
         const audioBlob = new Blob(chunks, { type: "audio/mp4" });
 
-        output.textContent =
-          `🎧 Audio captured (${Math.round(audioBlob.size / 1024)} KB)`;
-
         if (audioBlob.size < 3000) {
-          output.textContent +=
-            "\n❌ Recording failed. Please try again.";
+          output.textContent = "❌ Recording failed. Please try again.";
           return;
         }
 
-        output.textContent += "\n⬆ Uploading audio…";
+        output.textContent = "⬆ Uploading audio…";
 
         const formData = new FormData();
         formData.append("file", audioBlob, "meeting.mp4");
@@ -93,15 +79,22 @@ document.addEventListener("DOMContentLoaded", () => {
           body: formData
         });
 
-        if (!response.ok) {
-          throw new Error("Server error during transcription");
-        }
-
         const data = await response.json();
 
         output.textContent =
-          "✅ Transcription complete:\n\n" +
-          (data.text || "(No speech detected)");
+          "📝 Generating structured meeting notes…";
+
+        const notesResponse = await fetch("/extract-notes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ transcript: data.text })
+        });
+
+        const notesData = await notesResponse.json();
+        window.latestNotes = notesData.notes;
+
+        output.textContent =
+          "📝 MEETING NOTES\n\n" + notesData.notes;
 
       } catch (err) {
         console.error(err);
@@ -113,5 +106,25 @@ document.addEventListener("DOMContentLoaded", () => {
         recordStartTime = null;
       }
     };
+  });
+
+  /* =========================
+     DOWNLOAD NOTES
+     ========================= */
+  downloadBtn.addEventListener("click", () => {
+    if (!window.latestNotes) {
+      alert("No notes available to download yet.");
+      return;
+    }
+
+    const blob = new Blob([window.latestNotes], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "interior-meeting-notes.txt";
+    a.click();
+
+    URL.revokeObjectURL(url);
   });
 });
