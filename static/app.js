@@ -2,10 +2,12 @@ document.addEventListener("DOMContentLoaded", () => {
   let recorder = null;
   let chunks = [];
   let recordStartTime = null;
+  let micStream = null;
 
   const startBtn = document.getElementById("start");
   const stopBtn = document.getElementById("stop");
   const downloadBtn = document.getElementById("download");
+  const clearBtn = document.getElementById("clear");
   const output = document.getElementById("output");
   const statusDiv = document.getElementById("status");
   const loader = document.getElementById("loader");
@@ -28,23 +30,21 @@ document.addEventListener("DOMContentLoaded", () => {
   // -------------------------
   startBtn.addEventListener("click", async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recorder = new MediaRecorder(micStream, { mimeType: "audio/mp4" });
 
-      recorder = new MediaRecorder(stream, { mimeType: "audio/mp4" });
       chunks = [];
       recordStartTime = Date.now();
 
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          chunks.push(event.data);
-        }
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
       };
 
       recorder.start();
-      output.textContent = "🎙 Recording started… Speak clearly.";
+      output.textContent = "🎙 Recording started…";
 
-    } catch (err) {
-      output.textContent = "❌ Microphone access denied.";
+    } catch {
+      output.textContent = "❌ Microphone permission denied.";
     }
   });
 
@@ -98,6 +98,10 @@ document.addEventListener("DOMContentLoaded", () => {
         loader.style.display = "none";
         output.textContent = "❌ Processing failed.";
       } finally {
+        if (micStream) {
+          micStream.getTracks().forEach(t => t.stop());
+          micStream = null;
+        }
         recorder = null;
         chunks = [];
         recordStartTime = null;
@@ -110,7 +114,6 @@ document.addEventListener("DOMContentLoaded", () => {
   // -------------------------
   downloadBtn.addEventListener("click", () => {
     if (!window.latestNotes) return;
-
     const blob = new Blob([window.latestNotes], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
 
@@ -120,5 +123,13 @@ document.addEventListener("DOMContentLoaded", () => {
     a.click();
 
     URL.revokeObjectURL(url);
+  });
+
+  // -------------------------
+  // Clear session
+  // -------------------------
+  clearBtn.addEventListener("click", () => {
+    window.latestNotes = null;
+    output.textContent = "Tap “Start Recording” to begin a new meeting.";
   });
 });
