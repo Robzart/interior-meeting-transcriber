@@ -5,77 +5,98 @@ import whisper
 import shutil
 import uuid
 import os
+import re
 
 app = FastAPI()
 
-# Ensure uploads folder exists
+# -------------------------
+# Setup
+# -------------------------
 os.makedirs("uploads", exist_ok=True)
 
-# Load Whisper model (already working in your setup)
+# Load Whisper (CPU, paid Render instance)
 model = whisper.load_model("small")
 
-# -------------------------------
-# Rule-based note extraction
-# -------------------------------
-def rule_based_extract_notes(transcript: str) -> str:
-    text = transcript.lower()
+# -------------------------
+# Health Check
+# -------------------------
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
-    def has(words):
-        return any(w in text for w in words)
+# -------------------------
+# Rule-based sentence extraction
+# -------------------------
+def rule_based_extract_notes(transcript: str) -> str:
+    sentences = re.split(r'(?<=[.!?])\s+', transcript.strip())
+
+    def find_sentences(keywords):
+        return [
+            s.strip()
+            for s in sentences
+            if any(k.lower() in s.lower() for k in keywords)
+        ]
 
     notes = []
 
     notes.append("PROJECT OVERVIEW")
-    notes.append(f"- Property Type: {'Mentioned' if has(['flat', 'apartment', 'villa', 'house']) else 'Not specified'}")
-    notes.append(f"- Approx Area: {'Mentioned' if has(['sq ft', 'square feet']) else 'Not specified'}")
-    notes.append(f"- Family Members: {'Mentioned' if has(['family', 'kids', 'children']) else 'Not specified'}")
+    prop = find_sentences(["apartment", "flat", "villa", "house"])
+    area = find_sentences(["sq ft", "square feet"])
+    family = find_sentences(["family", "kids", "children", "wife"])
+
+    notes.append(f"- Property Type: {prop[0] if prop else 'Not specified'}")
+    notes.append(f"- Approx Area: {area[0] if area else 'Not specified'}")
+    notes.append(f"- Family Members: {family[0] if family else 'Not specified'}")
     notes.append("")
 
     notes.append("LIVING ROOM")
-    if has(['living room', 'hall']):
-        if has(['tv unit', 'television']):
-            notes.append("- TV unit discussed")
-        if has(['false ceiling', 'ceiling']):
-            notes.append("- False ceiling mentioned")
-        if has(['lighting', 'cove', 'led']):
-            notes.append("- Lighting discussed")
+    living = find_sentences(
+        ["living room", "hall", "tv", "false ceiling", "lighting", "cove"]
+    )
+    if living:
+        for s in living:
+            notes.append(f"- {s}")
     else:
         notes.append("- Not specified")
     notes.append("")
 
     notes.append("KITCHEN")
-    if has(['kitchen']):
-        if has(['modular']):
-            notes.append("- Modular kitchen mentioned")
-        if has(['quartz', 'granite', 'countertop']):
-            notes.append("- Countertop material discussed")
-        if has(['drawer', 'cabinet']):
-            notes.append("- Storage discussed")
+    kitchen = find_sentences(
+        ["kitchen", "modular", "countertop", "drawer", "cabinet", "dishwasher"]
+    )
+    if kitchen:
+        for s in kitchen:
+            notes.append(f"- {s}")
     else:
         notes.append("- Not specified")
     notes.append("")
 
     notes.append("BEDROOMS")
-    if has(['bedroom']):
-        if has(['wardrobe']):
-            notes.append("- Wardrobe discussed")
-        if has(['study table', 'work desk']):
-            notes.append("- Study table mentioned")
+    bedroom = find_sentences(
+        ["bedroom", "wardrobe", "study table", "sliding"]
+    )
+    if bedroom:
+        for s in bedroom:
+            notes.append(f"- {s}")
     else:
         notes.append("- Not specified")
     notes.append("")
 
     notes.append("BUDGET / TIMELINE")
-    if has(['budget', 'cost', 'price']):
-        notes.append("- Budget discussion present")
+    budget = find_sentences(
+        ["budget", "cost", "price", "start", "timeline", "march"]
+    )
+    if budget:
+        for s in budget:
+            notes.append(f"- {s}")
     else:
         notes.append("- Not specified")
 
     return "\n".join(notes)
 
-# -------------------------------
+# -------------------------
 # Routes
-# -------------------------------
+# -------------------------
 @app.get("/")
 def serve_frontend():
     return FileResponse("static/index.html")
@@ -90,6 +111,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
         shutil.copyfileobj(file.file, buffer)
 
     result = model.transcribe(filename)
+
     return {"text": result["text"]}
 
 @app.post("/extract-notes")

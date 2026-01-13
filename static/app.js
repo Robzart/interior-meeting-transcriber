@@ -7,10 +7,24 @@ document.addEventListener("DOMContentLoaded", () => {
   const stopBtn = document.getElementById("stop");
   const downloadBtn = document.getElementById("download");
   const output = document.getElementById("output");
+  const statusDiv = document.getElementById("status");
 
-  /* =========================
-     START RECORDING
-     ========================= */
+  // -------------------------
+  // App status check
+  // -------------------------
+  fetch("/health")
+    .then(() => {
+      statusDiv.textContent = "🟢 App Status: Live";
+      statusDiv.style.background = "#e6f4ea";
+    })
+    .catch(() => {
+      statusDiv.textContent = "🔴 App Status: Offline";
+      statusDiv.style.background = "#fdecea";
+    });
+
+  // -------------------------
+  // Start recording
+  // -------------------------
   startBtn.addEventListener("click", async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -35,9 +49,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  /* =========================
-     STOP RECORDING (SAFARI SAFE)
-     ========================= */
+  // -------------------------
+  // Stop recording (Safari-safe)
+  // -------------------------
   stopBtn.addEventListener("click", () => {
     if (!recorder) {
       output.textContent = "⚠️ Recorder not active.";
@@ -52,7 +66,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    output.textContent = "⏹ Stopping recording…";
+    output.textContent = "⏳ Uploading audio…";
 
     recorder.requestData();
 
@@ -69,10 +83,11 @@ document.addEventListener("DOMContentLoaded", () => {
           return;
         }
 
-        output.textContent = "⬆ Uploading audio…";
-
         const formData = new FormData();
         formData.append("file", audioBlob, "meeting.mp4");
+
+        output.textContent =
+          "🧠 Transcribing audio… This may take up to 1 minute.";
 
         const response = await fetch("/transcribe", {
           method: "POST",
@@ -81,8 +96,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const data = await response.json();
 
-        output.textContent =
-          "📝 Generating structured meeting notes…";
+        output.textContent = "📝 Generating structured meeting notes…";
 
         const notesResponse = await fetch("/extract-notes", {
           method: "POST",
@@ -108,9 +122,9 @@ document.addEventListener("DOMContentLoaded", () => {
     };
   });
 
-  /* =========================
-     DOWNLOAD NOTES
-     ========================= */
+  // -------------------------
+  // Download notes
+  // -------------------------
   downloadBtn.addEventListener("click", () => {
     if (!window.latestNotes) {
       alert("No notes available to download yet.");
