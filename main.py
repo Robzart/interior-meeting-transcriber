@@ -5,6 +5,7 @@ import whisper
 import shutil
 import uuid
 import os
+import re
 
 app = FastAPI()
 
@@ -22,76 +23,145 @@ def health():
     return {"status": "ok"}
 
 # -------------------------
-# Helper for field extraction
+# Utility helpers
 # -------------------------
-def extract_value(transcript: str, keywords):
-    for line in transcript.split("."):
-        l = line.lower()
-        if any(k in l for k in keywords):
-            cleaned = line.strip()
-            for w in ["yes", "okay", "alright", "so", "then"]:
-                cleaned = cleaned.replace(w.capitalize(), "").replace(w, "")
-            return cleaned.strip()
+def normalize(text: str) -> str:
+    text = text.lower()
+
+    remove_phrases = [
+        "yes", "okay", "alright", "sure", "we want", "we need",
+        "this will be", "it is", "it's", "should be", "around",
+        "approximately", "please", "also", "so"
+    ]
+
+    for r in remove_phrases:
+        text = text.replace(r, "")
+
+    return text.strip().capitalize()
+
+
+def extract_value(transcript: str, keywords, patterns=None):
+    sentences = transcript.split(".")
+    for s in sentences:
+        s_low = s.lower()
+        if any(k in s_low for k in keywords):
+            if patterns:
+                for p in patterns:
+                    m = re.search(p, s_low)
+                    if m:
+                        return m.group(1).capitalize()
+            return normalize(s)
     return "Not specified"
 
 # -------------------------
-# Rule-based structured notes
+# Structured rule-based notes
 # -------------------------
 def rule_based_extract_notes(transcript: str) -> str:
     notes = []
 
     # PROJECT OVERVIEW
     notes.append("PROJECT OVERVIEW")
-    notes.append(f"- Property Type: {extract_value(transcript, ['3 bhk', 'apartment', 'flat', 'villa'])}")
-    notes.append(f"- Area: {extract_value(transcript, ['square feet', 'sq ft'])}")
-    notes.append(f"- Family Members: {extract_value(transcript, ['wife', 'kids', 'children', 'family'])}")
+    notes.append("- Property Type: " + extract_value(
+        transcript, ["3 bhk", "apartment", "flat", "villa"]
+    ))
+    notes.append("- Area: " + extract_value(
+        transcript, ["sq ft", "square feet"],
+        [r"(\d+\s*(?:sq ft|square feet))"]
+    ))
+    notes.append("- Family Members: " + extract_value(
+        transcript, ["wife", "kids", "children", "family"]
+    ))
     notes.append("")
 
     # LIVING ROOM
     notes.append("LIVING ROOM")
-    notes.append(f"- TV Unit: {extract_value(transcript, ['tv unit'])}")
-    notes.append(f"- Ceiling: {extract_value(transcript, ['false ceiling'])}")
-    notes.append(f"- Lighting: {extract_value(transcript, ['cove', 'warm light', 'led'])}")
+    notes.append("- TV Unit: " + extract_value(
+        transcript, ["tv unit"],
+        [r"(east|west|north|south)[-\s]facing wall"]
+    ))
+    notes.append("- Ceiling: " + extract_value(
+        transcript, ["false ceiling"]
+    ))
+    notes.append("- Lighting: " + extract_value(
+        transcript, ["cove", "warm"],
+        [r"warm\s+\w+"]
+    ))
     notes.append("")
 
     # KITCHEN
     notes.append("KITCHEN")
-    notes.append(f"- Type: {extract_value(transcript, ['modular kitchen'])}")
-    notes.append(f"- Countertop: {extract_value(transcript, ['quartz', 'granite', 'countertop'])}")
-    notes.append(f"- Storage: {extract_value(transcript, ['soft close', 'drawer', 'cabinet'])}")
-    notes.append(f"- Appliances: {extract_value(transcript, ['dishwasher', 'microwave'])}")
+    notes.append("- Type: " + extract_value(
+        transcript, ["modular kitchen"],
+        [r"modular kitchen"]
+    ))
+    notes.append("- Countertop: " + extract_value(
+        transcript, ["quartz", "granite"]
+    ))
+    notes.append("- Storage: " + extract_value(
+        transcript, ["soft close", "drawer"],
+        [r"soft[-\s]close drawers"]
+    ))
+    notes.append("- Appliances: " + extract_value(
+        transcript, ["dishwasher", "microwave"]
+    ))
     notes.append("")
 
     # MASTER BEDROOM
     notes.append("MASTER BEDROOM")
-    notes.append(f"- Wardrobe: {extract_value(transcript, ['wardrobe'])}")
-    notes.append(f"- Study Table: {extract_value(transcript, ['study table'])}")
-    notes.append(f"- Colour Preference: {extract_value(transcript, ['colour', 'neutral', 'walnut'])}")
+    notes.append("- Wardrobe: " + extract_value(
+        transcript, ["wardrobe"],
+        [r"(\d+\s*feet wide)"]
+    ))
+    notes.append("- Study Table: " + extract_value(
+        transcript, ["study table"]
+    ))
+    notes.append("- Colour Preference: " + extract_value(
+        transcript, ["neutral", "walnut", "beige", "grey"]
+    ))
     notes.append("")
 
     # BATHROOMS
     notes.append("BATHROOMS")
-    notes.append(f"- Fittings: {extract_value(transcript, ['bathroom fittings', 'fittings'])}")
-    notes.append(f"- Tiles: {extract_value(transcript, ['tiles', 'wall tiles', 'floor tiles'])}")
-    notes.append(f"- Storage: {extract_value(transcript, ['vanity', 'mirror cabinet'])}")
+    notes.append("- Fittings: " + extract_value(
+        transcript, ["wall mounted"]
+    ))
+    notes.append("- Tiles: " + extract_value(
+        transcript, ["tiles", "large format"]
+    ))
+    notes.append("- Storage: " + extract_value(
+        transcript, ["vanity", "mirror cabinet"]
+    ))
     notes.append("")
 
     # BALCONY
     notes.append("BALCONY")
-    notes.append(f"- Usage: {extract_value(transcript, ['balcony'])}")
-    notes.append(f"- Flooring: {extract_value(transcript, ['outdoor tiles', 'deck', 'artificial grass'])}")
+    notes.append("- Usage: " + extract_value(
+        transcript, ["balcony", "sit out", "sit-out"]
+    ))
+    notes.append("- Flooring: " + extract_value(
+        transcript, ["outdoor tiles", "deck"]
+    ))
     notes.append("")
 
-    # ELECTRICAL & LIGHTING
+    # ELECTRICAL
     notes.append("ELECTRICAL & LIGHTING")
-    notes.append(f"- Switches & Points: {extract_value(transcript, ['switch', 'socket', 'plug point'])}")
-    notes.append(f"- Special Lighting: {extract_value(transcript, ['profile light', 'spotlight', 'sensor'])}")
+    notes.append("- Switches & Points: " + extract_value(
+        transcript, ["plug point", "socket"]
+    ))
+    notes.append("- Special Lighting: " + extract_value(
+        transcript, ["profile", "spot", "sensor"]
+    ))
     notes.append("")
 
     # BUDGET & TIMELINE
     notes.append("BUDGET & TIMELINE")
-    notes.append(f"- Budget: {extract_value(transcript, ['budget', 'lakhs'])}")
-    notes.append(f"- Timeline: {extract_value(transcript, ['start', 'march', 'april', 'may'])}")
+    notes.append("- Budget: " + extract_value(
+        transcript, ["lakhs"],
+        [r"\d+\s*lakhs"]
+    ))
+    notes.append("- Timeline: " + extract_value(
+        transcript, ["march", "april", "may", "june"]
+    ))
 
     return "\n".join(notes)
 
@@ -113,13 +183,13 @@ async def transcribe_audio(file: UploadFile = File(...)):
 
     result = model.transcribe(filename)
 
-    # 🔐 Delete audio immediately
+    # Privacy-safe cleanup
     os.remove(filename)
 
     return {"text": result["text"]}
 
 @app.post("/extract-notes")
 async def extract_notes(payload: dict):
-    transcript = payload.get("transcript", "").strip()
+    transcript = payload.get("transcript", "")
     notes = rule_based_extract_notes(transcript)
     return {"notes": notes}
