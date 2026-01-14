@@ -1,8 +1,8 @@
 document.addEventListener("DOMContentLoaded", () => {
   let recorder = null;
+  let micStream = null;
   let chunks = [];
   let recordStartTime = null;
-  let micStream = null;
 
   const startBtn = document.getElementById("start");
   const stopBtn = document.getElementById("stop");
@@ -12,9 +12,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const statusDiv = document.getElementById("status");
   const loader = document.getElementById("loader");
 
-  // -------------------------
-  // App status
-  // -------------------------
+  // App health
   fetch("/health")
     .then(() => {
       statusDiv.textContent = "🟢 App Status: Live";
@@ -25,9 +23,7 @@ document.addEventListener("DOMContentLoaded", () => {
       statusDiv.style.background = "#fdecea";
     });
 
-  // -------------------------
   // Start recording
-  // -------------------------
   startBtn.addEventListener("click", async () => {
     try {
       micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -36,7 +32,7 @@ document.addEventListener("DOMContentLoaded", () => {
       chunks = [];
       recordStartTime = Date.now();
 
-      recorder.ondataavailable = (e) => {
+      recorder.ondataavailable = e => {
         if (e.data.size > 0) chunks.push(e.data);
       };
 
@@ -48,86 +44,80 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // -------------------------
-  // Stop recording
-  // -------------------------
+  // Stop recording — HARD mic stop
   stopBtn.addEventListener("click", () => {
-    if (!recorder) return;
+    if (!recorder || !micStream) return;
 
     if (Date.now() - recordStartTime < 3000) {
       output.textContent = "⚠️ Please record at least 3 seconds.";
       return;
     }
 
+    // 🔴 STOP MIC IMMEDIATELY (KEY FIX)
+    micStream.getTracks().forEach(track => track.stop());
+    micStream = null;
+
     loader.style.display = "block";
     output.textContent = "⏳ Uploading audio…";
 
     recorder.requestData();
-    setTimeout(() => recorder.stop(), 500);
-
-    recorder.onstop = async () => {
-      try {
-        const audioBlob = new Blob(chunks, { type: "audio/mp4" });
-
-        const formData = new FormData();
-        formData.append("file", audioBlob, "meeting.mp4");
-
-        output.textContent = "🧠 Transcribing audio…";
-
-        const tRes = await fetch("/transcribe", {
-          method: "POST",
-          body: formData
-        });
-        const tData = await tRes.json();
-
-        output.textContent = "📝 Structuring meeting notes…";
-
-        const nRes = await fetch("/extract-notes", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ transcript: tData.text })
-        });
-
-        const nData = await nRes.json();
-        window.latestNotes = nData.notes;
-
-        loader.style.display = "none";
-        output.textContent = "📝 MEETING NOTES\n\n" + nData.notes;
-
-      } catch {
-        loader.style.display = "none";
-        output.textContent = "❌ Processing failed.";
-      } finally {
-        if (micStream) {
-          micStream.getTracks().forEach(t => t.stop());
-          micStream = null;
-        }
-        recorder = null;
-        chunks = [];
-        recordStartTime = null;
-      }
-    };
+    setTimeout(() => recorder.stop(), 300);
   });
 
-  // -------------------------
-  // Download notes
-  // -------------------------
+  // After recording stops
+  recorderStopHandler = async () => {};
+
+  document.addEventListener("recorderStop", async () => {
+    try {
+      const audioBlob = new Blob(chunks, { type: "audio/mp4" });
+      const formData = new FormData();
+      formData.append("file", audioBlob, "meeting.mp4");
+
+      output.textContent = "🧠 Transcribing audio…";
+      const tRes = await fetch("/transcribe", { method: "POST", body: formData });
+      const tData = await tRes.json();
+
+      output.textContent = "📝 Structuring meeting notes…";
+      const nRes = await fetch("/extract-notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transcript: tData.text })
+      });
+
+      const nData = await nRes.json();
+      window.latestNotes = nData.notes;
+
+      loader.style.display = "none";
+      output.textContent = "📝 MEETING NOTES\n\n" + nData.notes;
+
+    } catch {
+      loader.style.display = "none";
+      output.textContent = "❌ Processing failed.";
+    } finally {
+      recorder = null;
+      chunks = [];
+      recordStartTime = null;
+    }
+  });
+
+  // Recorder stop hook
+  const originalStop = MediaRecorder.prototype.stop;
+  MediaRecorder.prototype.stop = function () {
+    originalStop.call(this);
+    document.dispatchEvent(new Event("recorderStop"));
+  };
+
+  // Download
   downloadBtn.addEventListener("click", () => {
     if (!window.latestNotes) return;
     const blob = new Blob([window.latestNotes], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-
     const a = document.createElement("a");
-    a.href = url;
+    a.href = URL.createObjectURL(blob);
     a.download = "interior-meeting-notes.txt";
     a.click();
-
-    URL.revokeObjectURL(url);
   });
 
-  // -------------------------
   // Clear session
-  // -------------------------
   clearBtn.addEventListener("click", () => {
     window.latestNotes = null;
     output.textContent = "Tap “Start Recording” to begin a new meeting.";
