@@ -12,7 +12,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const statusDiv = document.getElementById("status");
   const loader = document.getElementById("loader");
 
+  // -------------------------
   // App health
+  // -------------------------
   fetch("/health")
     .then(() => {
       statusDiv.textContent = "🟢 App Status: Live";
@@ -23,72 +25,82 @@ document.addEventListener("DOMContentLoaded", () => {
       statusDiv.style.background = "#fdecea";
     });
 
-  // START RECORDING
+  // -------------------------
+  // START RECORDING (SAFE)
+  // -------------------------
   startBtn.addEventListener("click", async () => {
     try {
       micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      recorder = new MediaRecorder(micStream, { mimeType: "audio/mp4" });
 
+      recorder = new MediaRecorder(micStream); // let Safari decide mimeType
       chunks = [];
       recordStartTime = Date.now();
 
-      recorder.ondataavailable = e => {
+      recorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) {
           chunks.push(e.data);
         }
       };
 
       recorder.start();
-      output.textContent = "🎙 Recording started…";
+      output.textContent = "🎙 Recording started… Speak now.";
 
     } catch (err) {
+      console.error(err);
       output.textContent = "❌ Microphone permission denied.";
     }
   });
 
-  // STOP RECORDING (SAFE VERSION)
+  // -------------------------
+  // STOP RECORDING (SAFE)
+  // -------------------------
   stopBtn.addEventListener("click", () => {
-    if (!recorder || !micStream) return;
+    if (!recorder) return;
 
-    if (Date.now() - recordStartTime < 3000) {
+    const duration = Date.now() - recordStartTime;
+    if (duration < 3000) {
       output.textContent = "⚠️ Please record at least 3 seconds.";
       return;
     }
 
-    // 🔴 STOP MIC IMMEDIATELY
-    micStream.getTracks().forEach(track => track.stop());
-    micStream = null;
-
     loader.style.display = "block";
-    output.textContent = "⏳ Uploading audio…";
+    output.textContent = "⏳ Processing recording…";
 
-    recorder.requestData();
-
-    setTimeout(() => {
-      recorder.stop();
-    }, 400);
+    recorder.stop();
   });
 
-  // WHEN RECORDER FULLY STOPS
-  recorderStopped = false;
+  // -------------------------
+  // WHEN RECORDING FULLY STOPS
+  // -------------------------
+  document.addEventListener("DOMContentLoaded", () => {
+    // noop (placeholder)
+  });
 
-  const waitForStop = () =>
-    new Promise(resolve => recorder.onstop = resolve);
+  const waitForRecorderStop = () =>
+    new Promise((resolve) => {
+      recorder.onstop = resolve;
+    });
 
   stopBtn.addEventListener("click", async () => {
     if (!recorder) return;
 
-    await waitForStop();
+    await waitForRecorderStop();
 
     try {
-      const audioBlob = new Blob(chunks, { type: "audio/mp4" });
+      // ✅ NOW it is safe to stop the mic
+      if (micStream) {
+        micStream.getTracks().forEach(track => track.stop());
+        micStream = null;
+      }
+
+      const audioBlob = new Blob(chunks);
 
       if (!audioBlob || audioBlob.size < 2000) {
-        throw new Error("Empty audio");
+        throw new Error("Empty recording");
       }
 
       const formData = new FormData();
-      formData.append("file", audioBlob, "meeting.mp4");
+      formData.append("file", audioBlob, "meeting.webm");
 
       output.textContent = "🧠 Transcribing audio…";
 
@@ -116,6 +128,7 @@ document.addEventListener("DOMContentLoaded", () => {
       output.textContent = "📝 MEETING NOTES\n\n" + nData.notes;
 
     } catch (err) {
+      console.error(err);
       loader.style.display = "none";
       output.textContent = "❌ Transcribing failed. Please try again.";
     } finally {
@@ -125,7 +138,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // -------------------------
   // DOWNLOAD
+  // -------------------------
   downloadBtn.addEventListener("click", () => {
     if (!window.latestNotes) return;
     const blob = new Blob([window.latestNotes], { type: "text/plain" });
@@ -135,7 +150,9 @@ document.addEventListener("DOMContentLoaded", () => {
     a.click();
   });
 
+  // -------------------------
   // CLEAR SESSION
+  // -------------------------
   clearBtn.addEventListener("click", () => {
     window.latestNotes = null;
     output.textContent = "Tap “Start Recording” to begin a new meeting.";
