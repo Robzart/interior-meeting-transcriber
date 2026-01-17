@@ -23,7 +23,7 @@ document.addEventListener("DOMContentLoaded", () => {
       statusDiv.style.background = "#fdecea";
     });
 
-  // Start recording
+  // START RECORDING
   startBtn.addEventListener("click", async () => {
     try {
       micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -33,18 +33,20 @@ document.addEventListener("DOMContentLoaded", () => {
       recordStartTime = Date.now();
 
       recorder.ondataavailable = e => {
-        if (e.data.size > 0) chunks.push(e.data);
+        if (e.data && e.data.size > 0) {
+          chunks.push(e.data);
+        }
       };
 
       recorder.start();
       output.textContent = "🎙 Recording started…";
 
-    } catch {
+    } catch (err) {
       output.textContent = "❌ Microphone permission denied.";
     }
   });
 
-  // Stop recording — HARD mic stop
+  // STOP RECORDING (SAFE VERSION)
   stopBtn.addEventListener("click", () => {
     if (!recorder || !micStream) return;
 
@@ -53,7 +55,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    // 🔴 STOP MIC IMMEDIATELY (KEY FIX)
+    // 🔴 STOP MIC IMMEDIATELY
     micStream.getTracks().forEach(track => track.stop());
     micStream = null;
 
@@ -61,23 +63,46 @@ document.addEventListener("DOMContentLoaded", () => {
     output.textContent = "⏳ Uploading audio…";
 
     recorder.requestData();
-    setTimeout(() => recorder.stop(), 300);
+
+    setTimeout(() => {
+      recorder.stop();
+    }, 400);
   });
 
-  // After recording stops
-  recorderStopHandler = async () => {};
+  // WHEN RECORDER FULLY STOPS
+  recorderStopped = false;
 
-  document.addEventListener("recorderStop", async () => {
+  const waitForStop = () =>
+    new Promise(resolve => recorder.onstop = resolve);
+
+  stopBtn.addEventListener("click", async () => {
+    if (!recorder) return;
+
+    await waitForStop();
+
     try {
       const audioBlob = new Blob(chunks, { type: "audio/mp4" });
+
+      if (!audioBlob || audioBlob.size < 2000) {
+        throw new Error("Empty audio");
+      }
+
       const formData = new FormData();
       formData.append("file", audioBlob, "meeting.mp4");
 
       output.textContent = "🧠 Transcribing audio…";
-      const tRes = await fetch("/transcribe", { method: "POST", body: formData });
+
+      const tRes = await fetch("/transcribe", {
+        method: "POST",
+        body: formData
+      });
+
+      if (!tRes.ok) throw new Error("Transcription failed");
+
       const tData = await tRes.json();
 
       output.textContent = "📝 Structuring meeting notes…";
+
       const nRes = await fetch("/extract-notes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -90,9 +115,9 @@ document.addEventListener("DOMContentLoaded", () => {
       loader.style.display = "none";
       output.textContent = "📝 MEETING NOTES\n\n" + nData.notes;
 
-    } catch {
+    } catch (err) {
       loader.style.display = "none";
-      output.textContent = "❌ Processing failed.";
+      output.textContent = "❌ Transcribing failed. Please try again.";
     } finally {
       recorder = null;
       chunks = [];
@@ -100,14 +125,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Recorder stop hook
-  const originalStop = MediaRecorder.prototype.stop;
-  MediaRecorder.prototype.stop = function () {
-    originalStop.call(this);
-    document.dispatchEvent(new Event("recorderStop"));
-  };
-
-  // Download
+  // DOWNLOAD
   downloadBtn.addEventListener("click", () => {
     if (!window.latestNotes) return;
     const blob = new Blob([window.latestNotes], { type: "text/plain" });
@@ -117,7 +135,7 @@ document.addEventListener("DOMContentLoaded", () => {
     a.click();
   });
 
-  // Clear session
+  // CLEAR SESSION
   clearBtn.addEventListener("click", () => {
     window.latestNotes = null;
     output.textContent = "Tap “Start Recording” to begin a new meeting.";
